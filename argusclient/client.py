@@ -653,7 +653,7 @@ class ArgusServiceClient(object):
 
     """
 
-    def __init__(self, user, password, endpoint, timeout=(10, 60), refreshToken=None, accessToken=None):
+    def __init__(self, user, password, endpoint, timeout=(10, 60), refreshToken=None, accessToken=None, clientCertificate=None):
         """
         Creates a new client object to interface with the Argus RESTful API.
 
@@ -669,6 +669,8 @@ class ArgusServiceClient(object):
         :type refreshToken: str
         :param accessToken: A token that can be used to authenticate with Argus. If a ``refreshToken`` or ``password`` is specified, the ``accessToken`` will be refreshed as and when it is needed.
         :type refreshToken: str
+        :param clientCertificate: Path to .pem certificate with cert & key of the client
+        :type clientCertificate: str
         """
         if not user:
             raise ValueError("A valid user must be specified")
@@ -691,6 +693,8 @@ class ArgusServiceClient(object):
         self.namespaces = NamespacesServiceClient(self)
         self.alerts = AlertsServiceClient(self)
         self.conn = requests.Session()
+        if clientCertificate:
+            self.conn.cert = clientCertificate
 
     def login(self):
         """
