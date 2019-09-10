@@ -582,24 +582,31 @@ def auto_auth(f):
     @wraps(f)
     def with_auth_token(*args, **kwargs):
         argus = args[0]
-        if not argus.accessToken and argus.refreshToken:
-            try:
+        if not argus.accessToken:
+            if argus.refreshToken:
+                try:
+                    res = argus._request_no_auth("post",
+                                                 "v2/auth/token/refresh",
+                                                 dataObj=dict(refreshToken=argus.refreshToken))
+                    argus.accessToken = res["accessToken"]
+                except ArgusAuthException:
+                    if argus.password:
+                        logging.debug("Token refresh failed, will attempt a fresh login", exc_info=True)
+                    else:
+                        raise
+            elif argus.password:
+                argus.refreshToken = None
                 res = argus._request_no_auth("post",
-                                     "v2/auth/token/refresh",
-                                     dataObj=dict(refreshToken=argus.refreshToken))
-                argus.accessToken = res["accessToken"]
-            except ArgusAuthException:
-                if argus.password:
-                    logging.debug("Token refresh failed, will attempt a fresh login", exc_info=True)
-                else:
-                    raise
-        if not argus.accessToken and argus.password:
-            argus.refreshToken = None
-            res = argus._request_no_auth("post",
-                                 "v2/auth/login",
-                                 dataObj=dict(username=argus.user, password=argus.password))
-            argus.refreshToken, argus.accessToken = res["refreshToken"], res["accessToken"]
-
+                                         "v2/auth/login",
+                                         dataObj=dict(username=argus.user, password=argus.password))
+                argus.refreshToken, argus.accessToken = res["refreshToken"], res["accessToken"]
+            # if Argus supports login without password with a client cert
+            elif argus.conn.cert:
+                argus.refreshToken = None
+                res = argus._request_no_auth("post",
+                                             "v2/auth/login",
+                                             dataObj=dict(username=argus.user))
+                argus.refreshToken, argus.accessToken = res["refreshToken"], res["accessToken"]
         try:
             return f(*args, **kwargs)
         except ArgusAuthException:
@@ -653,7 +660,7 @@ class ArgusServiceClient(object):
 
     """
 
-    def __init__(self, user, password, endpoint, timeout=(10, 60), refreshToken=None, accessToken=None, clientCertificate=None):
+    def __init__(self, user, password, endpoint, timeout=(10, 60), refreshToken=None, accessToken=None, trustStore=None, keyStore=None):
         """
         Creates a new client object to interface with the Argus RESTful API.
 
@@ -669,8 +676,10 @@ class ArgusServiceClient(object):
         :type refreshToken: str
         :param accessToken: A token that can be used to authenticate with Argus. If a ``refreshToken`` or ``password`` is specified, the ``accessToken`` will be refreshed as and when it is needed.
         :type refreshToken: str
-        :param clientCertificate: Path to .pem certificate with cert & key of the client
-        :type clientCertificate: str
+        :param trustStore: Path to .pem file with server and/or ca certs
+        :type trustStore: str
+        :param keyStore: Path to .pem file with client cert & private key
+        :type keyStore: str
         """
         if not user:
             raise ValueError("A valid user must be specified")
@@ -693,8 +702,10 @@ class ArgusServiceClient(object):
         self.namespaces = NamespacesServiceClient(self)
         self.alerts = AlertsServiceClient(self)
         self.conn = requests.Session()
-        if clientCertificate:
-            self.conn.cert = clientCertificate
+        if trustStore:
+            self.conn.verify = trustStore
+        if keyStore:
+            self.conn.cert = keyStore
 
     def login(self):
         """
